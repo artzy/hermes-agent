@@ -1432,3 +1432,40 @@ test('windowsHide defaults to true on Windows, is left alone elsewhere', () => {
 If the logic lives inline in a god-file (`main.ts`, `cli.py`,
 `gateway/run.py`) and extracting it feels disruptive: that's the actual
 signal to do the extraction, not to regex around it.
+
+---
+
+## Cursor Cloud specific instructions
+
+The startup update script already provisions dependencies, so you don't need
+to reinstall from scratch. It creates a Python `.venv` (CPython 3.12) with
+`uv pip install -e ".[all,dev]"` and runs `npm install` for the npm workspaces
+(root, `ui-tui`, `web`, `apps/*`). Activate Python with
+`source .venv/bin/activate`. `uv` lives at `~/.local/bin/uv`.
+
+Non-obvious caveats discovered during setup:
+
+- **TUI JS tests need the ink package built first.** From `ui-tui/`, a bare
+  `npm test` (vitest) fails ~45 test files with
+  `Cannot find module './dist/entry-exports.js'` because
+  `packages/hermes-ink` isn't built. Run `npm run build:ink` first, or use
+  `npm run check` (which does `build:ink` → `typecheck` → `test`). The main
+  `npm run build` builds `dist/entry.js` but NOT the ink sub-package.
+- **`ui-tui/src/lib/memory.test.ts` heap-dump tests flake here.** The 3
+  `performHeapDump` cases that actually write a V8 `.heapsnapshot` time out at
+  the 5s vitest limit because snapshot writes are slow in this constrained VM.
+  The opt-out variants pass; this is an environment timing issue, not a defect.
+- **`tests/hermes_cli/test_gateway_wsl.py::test_native_linux` fails here.**
+  This container has no `systemd`, so `supports_systemd_services()` returns
+  False even when the test mocks the OS-detection helpers. Environment-specific,
+  not a code bug. Otherwise the Python suite runs green via `scripts/run_tests.sh`.
+- **No external LLM provider is configured**, so a real agent turn needs a
+  model backend. A `CURSOR_API_KEY` and `HERMES_CURSOR_BASE_URL` are injected,
+  but the Cursor backend requires the external `hermes-cursor-provider` sidecar
+  (a standalone plugin, NOT in this repo) listening at that base URL — nothing
+  runs there by default. To exercise the agent loop locally without a provider,
+  set `model.provider: custom` + `model.base_url` (and `model.api_key` or
+  `CUSTOM_API_KEY`) in `~/.hermes/config.yaml` pointing at any local
+  OpenAI-compatible endpoint. Hermes streams (`stream=True`), so such an
+  endpoint must speak SSE. Run one-shot with `hermes -z "prompt" --yolo`
+  (`--yolo` auto-approves tool calls).
