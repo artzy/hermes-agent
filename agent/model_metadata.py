@@ -503,6 +503,9 @@ _URL_TO_PROVIDER: Dict[str, str] = {
     "api.novita.ai": "novita",
     "tokenhub.tencentmaas.com": "tencent-tokenhub",
     "ollama.com": "ollama-cloud",
+    # Together AI — current host + legacy api.together.xyz (still in docs/examples)
+    "api.together.ai": "together",
+    "api.together.xyz": "together",
 }
 
 # Auto-extend with hostnames derived from provider profiles.
