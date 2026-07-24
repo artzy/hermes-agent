@@ -17,10 +17,12 @@ Cursor Agent를 Hermes 추론 백엔드로 쓰기 위한 연동은 **hermes-agen
 
 ## v1 시맨틱
 
-- Cursor = ask/chat **텍스트** 백엔드 (Hermes가 도구 소유)
+- Cursor = ask/chat **텍스트** 백엔드 (Hermes가 도구 소유) — 기본
+- `HERMES_CURSOR_MODE=ask|agent` (기본 `ask`). agent면 Cursor 자체 파일/셸 도구 활성
 - 도구 스키마는 프롬프트에 직렬화, 응답의 `<tool_call>` → OpenAI `tool_calls` 파싱
 - 인증: `CURSOR_API_KEY` 및/또는 `agent login`
-- 런타임: `cursor-sdk` 우선, 없으면 `agent -p --mode=ask` CLI 폴백
+- 런타임: ask는 CLI 고정(`--mode=ask`); agent는 SDK 가능 시 SDK, 아니면 CLI `--mode=agent`
+- 상세: `Analysis/hermes-cursor-mode-switch.md`
 
 ## Hermes 코어 변경
 
