@@ -5056,6 +5056,48 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         idle = max(0.0, time.time() - last_finished_at)
         return f"✓ {format_duration_compact(idle)}"
 
+    @staticmethod
+    def _get_workspace_cwd() -> str:
+        """Return the working directory tools/agent should treat as cwd.
+
+        Prefers ``TERMINAL_CWD`` (session-restored / config bridge) over the
+        process cwd so the chrome matches where terminal/file tools run.
+        """
+        env_cwd = (os.getenv("TERMINAL_CWD") or "").strip()
+        if env_cwd:
+            return env_cwd
+        try:
+            return os.getcwd()
+        except OSError:
+            return ""
+
+    @staticmethod
+    def _short_cwd_label(cwd: str, max_len: int = 36) -> str:
+        """Compact cwd for prompt/status-bar chrome (home → ``~``, then ellipsis)."""
+        if not cwd or max_len <= 0:
+            return ""
+        try:
+            path = os.path.normpath(cwd)
+        except (OSError, TypeError, ValueError):
+            path = str(cwd)
+        try:
+            home = os.path.expanduser("~")
+            if home:
+                if os.name == "nt":
+                    home_n = os.path.normcase(home)
+                    path_n = os.path.normcase(path)
+                    if path_n == home_n or path_n.startswith(home_n + os.sep):
+                        path = "~" + path[len(home) :]
+                elif path == home or path.startswith(home + os.sep):
+                    path = "~" + path[len(home) :]
+        except Exception:
+            pass
+        if len(path) <= max_len:
+            return path
+        if max_len <= 1:
+            return "…"
+        return "…" + path[-(max_len - 1) :]
+
     def _get_status_bar_snapshot(self) -> Dict[str, Any]:
         # Prefer the agent's model name — it updates on fallback.
         # self.model reflects the originally configured model and never
@@ -5079,10 +5121,13 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         if len(model_short) > 26:
             model_short = f"{model_short[:23]}..."
 
+        workspace_cwd = self._get_workspace_cwd()
         elapsed_seconds = max(0.0, (datetime.now() - self.session_start).total_seconds())
         snapshot = {
             "model_name": model_name,
             "model_short": model_short,
+            "cwd": workspace_cwd,
+            "cwd_short": self._short_cwd_label(workspace_cwd, 36),
             "duration": format_duration_compact(elapsed_seconds),
             "prompt_elapsed": self._format_prompt_elapsed(
                 getattr(self, "_prompt_start_time", None),
@@ -5751,11 +5796,14 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             yolo_active = self._is_session_yolo_active()
             goal_segment = self._status_bar_goal_segment(snapshot)
             if width < 52:
+                cwd_label = self._short_cwd_label(snapshot.get("cwd") or "", 14)
                 text = f"{battery_prefix}⚕ {snapshot['model_short']} · {duration_label}"
                 if goal_segment:
                     text += f" · {goal_segment}"
                 if focus_label:
                     text += f" · {focus_label}"
+                if cwd_label:
+                    text += f" · {cwd_label}"
                 if yolo_active:
                     text += " · ⚠ YOLO"
                 return self._trim_status_bar_text(text, width)
@@ -5780,6 +5828,9 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                 parts.append(duration_label)
                 if focus_label:
                     parts.append(focus_label)
+                cwd_label = self._short_cwd_label(snapshot.get("cwd") or "", 22)
+                if cwd_label:
+                    parts.append(cwd_label)
                 if yolo_active:
                     parts.append("⚠ YOLO")
                 return self._trim_status_bar_text(" · ".join(parts), width)
@@ -5817,6 +5868,11 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                 parts.append(idle_since)
             if focus_label:
                 parts.append(focus_label)
+            cwd_label = snapshot.get("cwd_short") or self._short_cwd_label(
+                snapshot.get("cwd") or "", 36
+            )
+            if cwd_label:
+                parts.append(cwd_label)
             if yolo_active:
                 parts.append("⚠ YOLO")
             return self._trim_status_bar_text(" │ ".join(parts), width)
@@ -5854,6 +5910,10 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                 if focus_label:
                     frags.append(("class:status-bar-dim", " · "))
                     frags.append(("class:status-bar-strong", focus_label))
+                cwd_label = self._short_cwd_label(snapshot.get("cwd") or "", 14)
+                if cwd_label:
+                    frags.append(("class:status-bar-dim", " · "))
+                    frags.append(("class:status-bar-dim", cwd_label))
                 if yolo_active:
                     frags.append(("class:status-bar-dim", " · "))
                     frags.append(("class:status-bar-yolo", "⚠ YOLO"))
@@ -5894,6 +5954,10 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                     if focus_label:
                         frags.append(("class:status-bar-dim", " · "))
                         frags.append(("class:status-bar-strong", focus_label))
+                    cwd_label = self._short_cwd_label(snapshot.get("cwd") or "", 22)
+                    if cwd_label:
+                        frags.append(("class:status-bar-dim", " · "))
+                        frags.append(("class:status-bar-dim", cwd_label))
                     if yolo_active:
                         frags.append(("class:status-bar-dim", " · "))
                         frags.append(("class:status-bar-yolo", "⚠ YOLO"))
@@ -5955,6 +6019,13 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                     if focus_label:
                         frags.append(("class:status-bar-dim", " │ "))
                         frags.append(("class:status-bar-strong", focus_label))
+                    # Position 9: workspace cwd (always — matches Ink TUI chrome)
+                    cwd_label = snapshot.get("cwd_short") or self._short_cwd_label(
+                        snapshot.get("cwd") or "", 36
+                    )
+                    if cwd_label:
+                        frags.append(("class:status-bar-dim", " │ "))
+                        frags.append(("class:status-bar-dim", cwd_label))
                     if yolo_active:
                         frags.append(("class:status-bar-dim", " │ "))
                         frags.append(("class:status-bar-yolo", "⚠ YOLO"))
@@ -13790,6 +13861,15 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             return _state_fragment("class:prompt-working", "⚕")
         if self._voice_mode:
             return _state_fragment("class:voice-prompt", "🎤")
+        # Always show workspace cwd in the idle prompt so the working folder
+        # remains visible even when /statusbar is toggled off.
+        cwd_max = 20 if compact else 40
+        cwd_label = self._short_cwd_label(self._get_workspace_cwd(), cwd_max)
+        if cwd_label:
+            return [
+                ("class:prompt-cwd", f"{cwd_label} "),
+                ("class:prompt", symbol),
+            ]
         return [("class:prompt", symbol)]
 
     def _get_tui_prompt_text(self) -> str:
@@ -15921,6 +16001,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             'input-area': '',
             'placeholder': '#888888 italic',
             'prompt': '',
+            'prompt-cwd': '#8B8682',
             'prompt-working': '#888888 italic',
             'hint': '#888888 italic',
             'status-bar': 'bg:#1a1a2e #C0C0C0',

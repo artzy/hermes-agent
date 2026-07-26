@@ -4,8 +4,8 @@
 
 ## 요약
 
-`hermes-cursor-provider`에 `HERMES_CURSOR_MODE=ask|agent` 추가.
-기본은 기존과 동일하게 **ask**. agent로 바꾸면 CLI가 `--mode=agent`로 돈다.
+`hermes-cursor-provider`에 `HERMES_CURSOR_MODE=ask|agent|plan` 추가.
+기본은 **agent** (CLI `--mode` 생략). `ask`로 바꾸면 Hermes가 도구를 단독 소유.
 
 ## 사용법
 
@@ -31,14 +31,16 @@ python -m hermes_cursor_proxy
 
 | 모드 | CLI | SDK |
 |------|-----|-----|
-| ask (기본) | `agent -p --mode=ask` | 사용 안 함 (ask 플래그 없음) |
-| agent | `agent -p --mode=agent` | 가능하면 SDK local, 아니면 CLI |
+| agent (기본) | `agent -p` (`--mode` 생략) | 가능하면 SDK local, 아니면 CLI |
+| ask | `agent -p --mode=ask` | 사용 안 함 (ask 플래그 없음) |
+| plan | `agent -p --mode=plan` | CLI |
 
 ## 주의
 
 - agent면 Cursor가 파일/셸을 직접 씀 → Hermes 도구와 **이중 에이전트** 가능
 - 긴 작업/PR은 Cloud Agent 위임이 더 적합
-- 모드 변경 후 **사이드카 재시작** 필요
+- `$HERMES_HOME/cursor_mode` 파일로 바꾸면 사이드카 재시작 불필요 (요청마다 읽음)
+- env만 바꾼 경우 사이드카 재시작 필요
 
 ## 변경 파일 (hermes-cursor-provider)
 

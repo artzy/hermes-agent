@@ -1,8 +1,8 @@
 # Hermes Agent 프로젝트 분석
 
-- **분석일**: 2026-07-22
+- **분석일**: 2026-07-26
 - **버전**: 0.19.0 (`pyproject.toml`)
-- **커밋**: `3e953ed815ffb1e35277a77eb3e764d39dcf36f7`
+- **커밋**: `0a129a069d4c94efef6b99c799f8dd89b4c418ed`
 - **라이선스**: MIT (Nous Research)
 - **언어**: Python 3.11–3.13 + TypeScript (TUI / Desktop / Dashboard)
 
@@ -19,7 +19,7 @@ Hermes는 **동일 agent 코어**를 CLI · 메시징 게이트웨이 · Ink TUI
 | 축 | 내용 |
 |---|---|
 | 학습 루프 | 스킬 생성/개선, 메모리, 세션 검색(FTS5), curator |
-| 멀티 채널 | Telegram, Discord, Slack, WhatsApp, Signal 등 ~20+ 플랫폼 |
+| 멀티 채널 | Telegram, Discord, Slack, WhatsApp, Signal 등 20+ 플랫폼 |
 | 실행 환경 | local / Docker / SSH / Singularity / Modal / Daytona |
 | 확장 | plugins + skills (+ MCP catalog) — 코어 도구 추가가 최후 수단 |
 | 스케줄 | 내장 cron + 플랫폼 배달 |
@@ -38,12 +38,12 @@ Hermes는 **동일 agent 코어**를 CLI · 메시징 게이트웨이 · Ink TUI
 └── Gateway (gateway/)                  — 메시징 플랫폼 어댑터
 
 공유 코어
-├── run_agent.py          — AIAgent 대화 루프
+├── run_agent.py          — AIAgent 대화 루프 (~6.2k LOC)
 ├── model_tools.py        — 도구 디스커버리 / 디스패치
 ├── toolsets.py           — 플랫폼별 도구 번들
 ├── tools/                — registry.register() 자동 발견
 ├── agent/                — 메모리, 압축, 프로바이더, curator 등
-└── hermes_state.py       — SQLite 세션 스토어
+└── hermes_state.py       — SQLite 세션 스토어 (~8.8k LOC)
 
 확장
 ├── plugins/              — memory / model-providers / platforms / …
@@ -60,33 +60,48 @@ tools/registry.py
   ↑ run_agent.py / cli.py / batch_runner.py / environments
 ```
 
+### 대화 루프 (개념)
+
+```
+while budget remaining:
+  response = LLM(messages, tools)
+  if tool_calls:
+    for each: handle_function_call → append tool result
+  else:
+    return final content
+```
+
+메시지 역할은 OpenAI 형식이며, 같은 role 연속·합성 user 중간 주입을 피해야 prompt cache / alternation 불변식이 유지된다.
+
 ---
 
-## 4. 규모 스냅샷 (파일 수, 대략)
+## 4. 규모 스냅샷 (파일 수, 대략 · 2026-07-26)
 
 | 영역 | 파일 수 | 비고 |
 |---|---:|---|
-| `tests/` | ~2,244 | 테스트 비중 매우 큼 |
-| `apps/` | ~1,158 | desktop + shared + installer |
-| `website/` | ~747 | Docusaurus 문서 |
-| `skills/` + `optional-skills/` | ~1,052 | 스킬 자산 |
-| `ui-tui/` | ~429 | Ink TUI |
-| `plugins/` | ~318 | 확장 플러그인 |
-| `hermes_cli/` | ~209 | CLI 서브커맨드 |
-| `agent/` | ~157 | 에이전트 내부 |
-| `tools/` | ~116 | 도구 구현 |
+| `tests/` | ~2,282 | 테스트 비중 매우 큼 |
+| `apps/` | ~1,191 | desktop + shared + installer |
+| `website/` | ~749 | Docusaurus 문서 |
+| `skills/` | ~540 | 기본 스킬 자산 |
+| `ui-tui/` | ~431 | Ink TUI |
+| `plugins/` | ~320 | 확장 플러그인 |
+| `hermes_cli/` | ~210 | CLI 서브커맨드 |
+| `agent/` | ~159 | 에이전트 내부 |
+| `tools/` | ~120 | 도구 구현 |
 | `gateway/` | ~80 | 게이트웨이 런타임 |
 
-### God-file (LOC 대략)
+핵심 코드성 파일(테스트/문서 제외 대략): **~2,500** (`.py` / `.ts` / `.tsx` 등).
+
+### God-file (LOC)
 
 | 파일 | LOC | 역할 |
 |---|---:|---|
-| `gateway/run.py` | ~21k | 게이트웨이 오케스트레이터 |
-| `cli.py` | ~14.5k | 인터랙티브 CLI |
-| `hermes_cli/main.py` | ~13.7k | CLI 엔트리 / 서브커맨드 |
-| `hermes_cli/config.py` | ~8.5k | 설정 스키마 / 마이그레이션 |
-| `hermes_state.py` | ~7.2k | 세션 DB |
-| `run_agent.py` | ~6k | AIAgent 코어 루프 |
+| `gateway/run.py` | ~21.7k | 게이트웨이 오케스트레이터 |
+| `cli.py` | ~14.8k | 인터랙티브 CLI |
+| `hermes_cli/main.py` | ~14.0k | CLI 엔트리 / 서브커맨드 |
+| `hermes_state.py` | ~8.8k | 세션 DB |
+| `hermes_cli/config.py` | ~8.6k | 설정 스키마 / 마이그레이션 |
+| `run_agent.py` | ~6.2k | AIAgent 코어 루프 |
 
 문서(`AGENTS.md`)도 이 클러스터를 mixin/모듈로 쪼개는 리팩터를 **환영**한다.
 
@@ -118,15 +133,18 @@ tools/registry.py
 
 ### 6.2 Tools & Toolsets
 
+코어 도구 예시 (`_HERMES_CORE_TOOLS`): `web_*`, `terminal`/`process`, `read_file`/`write_file`/`patch`/`search_files`, browser 계열, `skills_*`, `todo`/`memory`, `execute_code`/`delegate_task`, `cronjob`, HA/kanban/computer_use(게이트됨) 등.
+
 - `tools/registry.py` — 스키마/핸들러/`check_fn`
 - `toolsets.py` — `messaging`, `browser`, `terminal`, `delegation` 등
 - 플랫폼별 `tools.<platform>.enabled/disabled` (`hermes tools`)
+- Webhook 기본 세트는 의도적으로 축소(`_HERMES_WEBHOOK_SAFE_TOOLS`) — 프롬프트 인젝션 대비
 
 ### 6.3 Gateway
 
 - 단일 프로세스에서 다수 플랫폼 연결
-- 코어 어댑터: `gateway/platforms/` (Signal, WhatsApp, Weixin, Yuanbao, webhook, …)
-- 플러그인 어댑터: `plugins/platforms/` (Telegram, Discord, Slack, Matrix, Feishu, Teams, …)
+- **코어 어댑터** (`gateway/platforms/`): Signal, WhatsApp Cloud, Weixin, Yuanbao, BlueBubbles, webhook, api_server, MS Graph webhook 등
+- **플러그인 어댑터** (`plugins/platforms/`): Telegram, Discord, Slack, Matrix, Feishu, Teams, Email, SMS, IRC, LINE, Home Assistant, Mattermost, DingTalk, WeCom, … (~20)
 - 실행 중 메시지 가드 2단(어댑터 큐 + runner 인터셉트) — `/stop`, `/approve` 등은 둘 다 우회 필요
 
 ### 6.4 Surfaces (UI)
@@ -137,6 +155,8 @@ tools/registry.py
 | TUI | Ink (React) | `tui_gateway` JSON-RPC |
 | Dashboard `/chat` | xterm.js + PTY | 임베디드 `hermes --tui` |
 | Desktop | Electron + React | `hermes serve` + JSON-RPC |
+
+npm workspaces: `apps/*`, `ui-tui`, `web`, `tests-js`.
 
 ### 6.5 Memory / Skills / Curator
 
@@ -149,11 +169,11 @@ tools/registry.py
 
 - **Cron**: duration / every-phrase / cron expr / ISO one-shot
 - **Kanban**: SQLite 보드 + dispatcher + `kanban_*` toolset
-- **Delegation**: 병렬 자식, depth leaf/orchestrator, 깊이·동시성 제한
+- **Delegation**: 병렬 자식, role leaf/orchestrator, 깊이·동시성 제한
 
 ### 6.7 Model Providers
 
-`plugins/model-providers/`에 OpenRouter, Anthropic, Gemini, Bedrock, DeepSeek, Nous, Ollama Cloud 등 **30+** 프로파일. lazy discovery + last-writer-wins 오버라이드.
+`plugins/model-providers/`에 OpenRouter, Anthropic, Gemini, Bedrock, DeepSeek, Nous, Ollama Cloud, Copilot, Azure Foundry, Vertex, xAI 등 **30+** 프로파일. lazy discovery + last-writer-wins 오버라이드.
 
 ---
 
@@ -176,6 +196,7 @@ tools/registry.py
 - 테스트는 `~/.hermes`에 쓰지 않음 (`_isolate_hermes_home`)
 - Change-detector 테스트 / 소스 텍스트 정규식 테스트 금지
 - JS 아티팩트 검증은 vitest 쪽 (`tests-js`, workspace packages)
+- 의존성: PyPI는 upper bound / exact pin 정책, GitHub Actions는 SHA pin
 
 ---
 
@@ -204,12 +225,27 @@ tools/registry.py
 
 ---
 
-## 11. Knowledge Graph 분석 (후속)
+## 11. Knowledge Graph (`/understand`) 상태 — 완료 (2026-07-26)
 
-전체 파일 수가 수천 개라 `/understand` 전체 스캔은 범위 제한이 필요하다.
+| 항목 | 결과 |
+|---|---|
+| 출력 | `.understand-anything/knowledge-graph.json` |
+| 언어 | `ko` |
+| 스캔 | **1078 files** (ignore로 ~5930 제외) |
+| 노드 / 엣지 | **6752** / **6913** |
+| 레이어 | 9 (Agent Core · Tools · Gateway · CLI · UI Surfaces · Plugins · Cron · Legacy Providers · Config & Docs) |
+| 투어 | 11 steps (Analysis §10 온보딩 순서 정렬) |
+| 커밋 | `0a129a069d4c94efef6b99c799f8dd89b4c418ed` |
 
-- 설정: `.understand-anything/config.json` → `outputLanguage: ko`
-- ignore 초안: `.understand-anything/.understandignore`
-- 1차 패스 권장 exclude: `tests/`, `website/`, `locales/`, `contributors/`, `optional-skills/`, `skills/`, `.github/` 등
+### 1차 패스 ignore 요지 (본 Analysis 문서 참조)
 
-확인 후 Phase 1(SCAN)부터 지식 그래프를 생성할 수 있다.
+- 제외: `tests/`, `website/`, `docs/`, `skills/`, `optional-*`, `Analysis/`(컨텍스트로만 참조), `web/`, `apps/desktop/src/`, `ui-tui/packages/`, 주변 product 플러그인
+- 유지: `agent/`, `tools/`, `gateway/`, `hermes_cli/`, `plugins/{memory,model-providers,platforms,context_engine,kanban}`, `ui-tui/src`, `apps/desktop/electron`, `apps/shared`, `tui_gateway/`, 루트 코어
+
+### 노드·엣지 분포
+
+- 타입: file 974 · function 5243 · class 431 · config 78 · document 23 · service 3
+- 엣지: contains 5674 · imports 1217 · documents/configures/deploys 소수
+- 경고: orphan 노드 ~150 (이슈 0 — 검증 통과)
+
+대시보드: `/understand-dashboard` 또는 `.understand-anything/knowledge-graph.json` 로드.
