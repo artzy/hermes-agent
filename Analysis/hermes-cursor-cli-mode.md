@@ -47,7 +47,7 @@ Cursor Agent CLI의 `--mode` 허용값은 **`ask` / `plan`만**.
 1. 요청 explicit / 헤더 `X-Hermes-Cursor-Mode` / body `hermes_cursor_mode`
 2. `$HERMES_HOME/cursor_mode` 파일
 3. env `HERMES_CURSOR_MODE`
-4. 기본 `ask`
+4. 기본 `agent` (Cursor CLI `--mode` 생략)
 
 ## 구성
 
