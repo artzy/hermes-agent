@@ -13,6 +13,8 @@ act/
 .vscode/
 .env
 .op.env
+# Local initial workdir for hermes.bat (one-line path). See hermes.bat header.
+hermes.workdir
 .env.local
 .env.development.local
 .env.test.local
