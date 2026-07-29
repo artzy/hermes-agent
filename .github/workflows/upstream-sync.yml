@@ -1,0 +1,119 @@
+name: Upstream sync
+
+# NousResearch/hermes-agent 의 main 을 이 fork 로 매일 자동 병합한다.
+# 충돌이 예상되면 병합을 시도하지 않고 이슈로 보고한다.
+
+on:
+  schedule:
+    - cron: '0 21 * * *' # 06:00 KST (UTC+9)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: https://github.com/NousResearch/hermes-agent.git
+  UPSTREAM_BRANCH: main
+  SYNC_LABEL: upstream-sync
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Fetch upstream
+        id: fetch
+        run: |
+          git remote add upstream "$UPSTREAM_REPO"
+          git fetch --no-tags upstream "$UPSTREAM_BRANCH"
+          behind=$(git rev-list --count "HEAD..upstream/$UPSTREAM_BRANCH")
+          echo "behind=$behind" >> "$GITHUB_OUTPUT"
+          echo "upstream 대비 뒤처진 커밋: $behind"
+
+      - name: Detect conflicts
+        id: precheck
+        if: steps.fetch.outputs.behind != '0'
+        run: |
+          # merge-tree 는 워킹트리를 건드리지 않고 병합 결과만 계산한다.
+          # 충돌 시 종료 코드 1, 첫 줄은 트리 OID, 그 뒤가 충돌 파일 목록이다.
+          if out=$(git merge-tree --write-tree --name-only HEAD "upstream/$UPSTREAM_BRANCH"); then
+            echo "conflicts=" >> "$GITHUB_OUTPUT"
+            echo "충돌 없음"
+          else
+            files=$(printf '%s\n' "$out" | awk 'NR > 1 { if ($0 == "") exit; print }')
+            {
+              echo "conflicts<<CONFLICT_EOF"
+              printf '%s\n' "$files"
+              echo "CONFLICT_EOF"
+            } >> "$GITHUB_OUTPUT"
+            echo "충돌 파일:"
+            printf '%s\n' "$files"
+          fi
+
+      - name: Merge and push
+        id: merge
+        if: steps.fetch.outputs.behind != '0' && steps.precheck.outputs.conflicts == ''
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git merge --no-edit "upstream/$UPSTREAM_BRANCH"
+          git push origin HEAD:main
+          echo "머지 완료: $(git rev-parse --short HEAD)"
+
+      - name: Report to issue
+        if: ${{ !cancelled() && (steps.precheck.outputs.conflicts != '' || failure()) }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONFLICTS: ${{ steps.precheck.outputs.conflicts }}
+          BEHIND: ${{ steps.fetch.outputs.behind }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "upstream 자동 동기화가 완료되지 못했습니다."
+            echo
+            echo "- 실행: $RUN_URL"
+            echo "- upstream 대비 뒤처진 커밋: ${BEHIND:-unknown}"
+            echo
+            if [ -n "$CONFLICTS" ]; then
+              echo "## 충돌 파일"
+              echo
+              printf '%s\n' "$CONFLICTS" | sed 's/^/- /'
+              echo
+              echo "머지는 시도하지 않았습니다. 저장소는 그대로입니다."
+            else
+              echo "## 실패"
+              echo
+              echo "충돌 사전 검사는 통과했으나 fetch/merge/push 단계에서 실패했습니다."
+              echo "자세한 내용은 위 실행 로그를 확인하세요."
+            fi
+            echo
+            echo '## 로컬에서 해결하기'
+            echo
+            echo '```bash'
+            echo 'git fetch upstream'
+            echo 'git merge upstream/main'
+            echo '# 충돌 해결 후'
+            echo 'git push origin main'
+            echo '```'
+          } > body.md
+
+          gh label create "$SYNC_LABEL" --color B60205 --description 'upstream 자동 동기화 실패' --force
+
+          existing=$(gh issue list --label "$SYNC_LABEL" --state open --limit 1 --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file body.md
+          else
+            gh issue create \
+              --title "upstream 동기화 실패 ($(date -u '+%Y-%m-%d'))" \
+              --label "$SYNC_LABEL" \
+              --body-file body.md
+          fi
