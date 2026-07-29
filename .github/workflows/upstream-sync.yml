@@ -2,6 +2,9 @@ name: Upstream sync
 
 # NousResearch/hermes-agent 의 main 을 이 fork 로 매일 자동 병합한다.
 # 충돌이 예상되면 병합을 시도하지 않고 이슈로 보고한다.
+#
+# 기본 GITHUB_TOKEN 은 .github/workflows/* 변경을 push 하지 못하므로
+# repo+workflow scope 의 classic PAT 를 UPSTREAM_SYNC_TOKEN secret 으로 사용한다.
 
 on:
   schedule:
@@ -20,15 +23,29 @@ env:
   UPSTREAM_REPO: https://github.com/NousResearch/hermes-agent.git
   UPSTREAM_BRANCH: main
   SYNC_LABEL: upstream-sync
+  # gh 는 fork 에서 기본 대상을 부모 저장소로 잡는다. 항상 이 fork 를 가리키게 고정한다.
+  GH_REPO: ${{ github.repository }}
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
+      - name: Require UPSTREAM_SYNC_TOKEN
+        env:
+          SYNC_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN }}
+        run: |
+          if [ -z "$SYNC_TOKEN" ]; then
+            echo "::error::Repository secret UPSTREAM_SYNC_TOKEN 이 없습니다. classic PAT(repo+workflow)를 등록하세요."
+            exit 1
+          fi
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: main
           fetch-depth: 0
+          # workflow 파일 변경을 포함한 push 에 필요 (GITHUB_TOKEN 으로는 거부됨)
+          token: ${{ secrets.UPSTREAM_SYNC_TOKEN }}
+          persist-credentials: true
 
       - name: Fetch upstream
         id: fetch
@@ -65,7 +82,9 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git merge --no-edit "upstream/$UPSTREAM_BRANCH"
+          # PAT push 는 다른 워크플로를 깨울 수 있어 [skip ci] 로 CI 폭주를 막는다.
+          git merge --no-edit -m "Merge remote-tracking branch 'upstream/main' [skip ci]" \
+            "upstream/$UPSTREAM_BRANCH"
           git push origin HEAD:main
           echo "머지 완료: $(git rev-parse --short HEAD)"
 
@@ -73,6 +92,7 @@ jobs:
         if: ${{ !cancelled() && (steps.precheck.outputs.conflicts != '' || failure()) }}
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           CONFLICTS: ${{ steps.precheck.outputs.conflicts }}
           BEHIND: ${{ steps.fetch.outputs.behind }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -106,13 +126,27 @@ jobs:
             echo '```'
           } > body.md
 
-          gh label create "$SYNC_LABEL" --color B60205 --description 'upstream 자동 동기화 실패' --force
+          # --repo 를 명시해 fork 가 아닌 부모 저장소로 가는 것을 막는다.
+          gh label create "$SYNC_LABEL" \
+            --repo "$GITHUB_REPOSITORY" \
+            --color B60205 \
+            --description 'upstream 자동 동기화 실패' \
+            --force
 
-          existing=$(gh issue list --label "$SYNC_LABEL" --state open --limit 1 --json number --jq '.[0].number // empty')
+          existing=$(gh issue list \
+            --repo "$GITHUB_REPOSITORY" \
+            --label "$SYNC_LABEL" \
+            --state open \
+            --limit 1 \
+            --json number \
+            --jq '.[0].number // empty')
           if [ -n "$existing" ]; then
-            gh issue comment "$existing" --body-file body.md
+            gh issue comment "$existing" \
+              --repo "$GITHUB_REPOSITORY" \
+              --body-file body.md
           else
             gh issue create \
+              --repo "$GITHUB_REPOSITORY" \
               --title "upstream 동기화 실패 ($(date -u '+%Y-%m-%d'))" \
               --label "$SYNC_LABEL" \
               --body-file body.md

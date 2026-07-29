@@ -129,6 +129,123 @@ fork에서 온 `pull_request` 이벤트에 한정되며 `schedule` / `workflow_d
 Actions 핀 정책(AGENTS.md)에 따라 `actions/checkout`은 저장소의 다른 워크플로와 같은
 커밋 SHA(`de0fac2e...` = v6.0.2)로 고정했다.
 
+## 4. PAT를 fork Secret으로 등록하는 방법
+
+기본 `GITHUB_TOKEN`에는 workflow 파일(`.github/workflows/*`)을 push할 권한이 없다.
+upstream이 워크플로를 수정한 날이면 머지까지는 성공해도 push가 거부된다.
+그래서 **classic PAT**에 `repo` + `workflow` scope를 주고, fork의
+Repository secret `UPSTREAM_SYNC_TOKEN`으로 넣는 것이 정석이다.
+
+> 주의: 토큰 문자열(`ghp_...`)을 채팅·커밋·이슈에 절대 붙여 넣지 말 것.
+> 발급 화면에서 **한 번만** 보이므로 바로 secret에 넣고, 로컬에 잠깐 둘 때는
+> 클립보드나 임시 환경변수만 쓰고 남기지 않는다.
+
+### 4-1. classic PAT 발급 (브라우저)
+
+1. GitHub에 `artzy` 계정으로 로그인한다.
+2. 우측 상단 프로필 → **Settings**.
+3. 왼쪽 맨 아래 **Developer settings**.
+4. **Personal access tokens** → **Tokens (classic)**.
+5. **Generate new token** → **Generate new token (classic)**.
+6. 비밀번호/2FA 확인이 뜨면 통과한다.
+7. 입력 값:
+   - **Note**: `artzy-hermes-agent-upstream-sync` (나중에 구분용)
+   - **Expiration**: 권장 `90 days` (만료되면 같은 절차로 재발급 후 secret만 갱신)
+   - **Select scopes**:
+     - [x] `repo` (전체 체크 — public fork라도 workflow push에 필요)
+     - [x] `workflow` (Update GitHub Action workflows)
+8. 맨 아래 **Generate token**.
+9. 화면에 나온 `ghp_...` 값을 **즉시 복사**한다. 이 페이지를 벗어나면 다시 볼 수 없다.
+
+fine-grained PAT도 가능하지만, workflow 파일 수정 권한이 classic보다 설정이 까다롭다.
+이 용도에서는 classic이 단순하다.
+
+### 4-2. Repository secret 등록 (브라우저 — 권장)
+
+1. https://github.com/artzy/hermes-agent 로 이동한다.
+2. **Settings** 탭 (저장소 설정 — 계정 Settings가 아님).
+3. 왼쪽 **Secrets and variables** → **Actions**.
+4. **New repository secret**.
+5. 입력:
+   - **Name**: `UPSTREAM_SYNC_TOKEN` (워크플로에서 이 이름을 참조할 예정)
+   - **Secret**: 방금 복사한 `ghp_...` 전체
+6. **Add secret**.
+7. 목록에 `UPSTREAM_SYNC_TOKEN`이 보이면 성공이다. 값은 다시 조회되지 않는다.
+
+경로 요약:
+
+```text
+github.com/artzy/hermes-agent
+  → Settings
+  → Secrets and variables → Actions
+  → New repository secret
+  → Name: UPSTREAM_SYNC_TOKEN
+```
+
+Environment secret이나 Organization secret이 아니다. **Repository secrets**여야
+`secrets.UPSTREAM_SYNC_TOKEN`으로 워크플로에서 읽힌다.
+
+### 4-3. Repository secret 등록 (gh CLI)
+
+브라우저 대신 CLI로도 된다. PowerShell에서:
+
+```powershell
+# 1) 방금 발급한 PAT를 환경변수에만 잠깐 둔다 (히스토리에 안 남기려면 아래처럼)
+$env:UPSTREAM_SYNC_TOKEN = Read-Host -AsSecureString "PAT (ghp_...)" |
+  ForEach-Object {
+    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($_)
+    try { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
+    finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+  }
+
+# 2) fork에 secret 등록 (값은 stdin으로 넘겨 명령줄에 안 남김)
+$env:UPSTREAM_SYNC_TOKEN | gh secret set UPSTREAM_SYNC_TOKEN --repo artzy/hermes-agent
+
+# 3) 등록 확인 (이름은 보이고 값은 안 보임)
+gh secret list --repo artzy/hermes-agent
+
+# 4) 셸에 남은 토큰 제거
+Remove-Item Env:UPSTREAM_SYNC_TOKEN
+```
+
+더 짧게 하려면 (값이 잠시 클립보드에 있다고 가정):
+
+```powershell
+gh secret set UPSTREAM_SYNC_TOKEN --repo artzy/hermes-agent
+# 프롬프트가 뜨면 PAT를 붙여넣고 Enter
+```
+
+`gh secret list`에 `UPSTREAM_SYNC_TOKEN`이 보이면 등록 완료다.
+
+### 4-4. 워크플로 수정 (적용됨)
+
+`upstream-sync.yml`을 다음처럼 고쳤다.
+
+1. 시작 시 `UPSTREAM_SYNC_TOKEN` 존재 여부를 검사한다.
+2. `actions/checkout`에 `token: ${{ secrets.UPSTREAM_SYNC_TOKEN }}` /
+   `persist-credentials: true`를 줘서 workflow 파일 포함 push가 되게 한다.
+3. 머지 커밋 메시지에 `[skip ci]`를 넣어 PAT push로 CI가 폭주하지 않게 한다.
+4. 실패 보고의 모든 `gh` 호출에 `--repo "$GITHUB_REPOSITORY"`를 명시하고,
+   Report 스텝에도 `GH_REPO`를 다시 넣는다.
+
+검증 (main에 push된 뒤):
+
+```powershell
+gh workflow run upstream-sync.yml --repo artzy/hermes-agent
+gh run list --repo artzy/hermes-agent --workflow upstream-sync.yml --limit 1
+gh run watch --repo artzy/hermes-agent
+```
+
+### 4-5. 만료·교체·폐기
+
+- PAT가 만료되면 **같은 이름** `UPSTREAM_SYNC_TOKEN`으로 secret 값만 다시 넣으면 된다
+  (워크플로 파일은 손대지 않아도 됨).
+- 토큰이 유출됐거나 더 이상 쓰지 않으면:
+  1. https://github.com/settings/tokens 에서 해당 classic token **Delete**
+  2. 저장소 Secrets에서 `UPSTREAM_SYNC_TOKEN` **Remove** (또는 새 토큰으로 Update)
+- 현재 `gh auth login`으로 쓰는 OAuth 토큰(`gho_...`)과는 **별개**다.
+  CLI 로그인 토큰을 secret에 넣지 말 것 — `workflow` scope가 없고 만료/권한이 다르다.
+
 ## 알려진 제약
 
 - fork에서는 스케줄 워크플로가 기본 비활성이다. push 후 활성 여부를 확인해야 하고,
@@ -137,8 +254,12 @@ Actions 핀 정책(AGENTS.md)에 따라 `actions/checkout`은 저장소의 다�
 - 원격 `main`만 갱신된다. 로컬 클론은 별도로 `git pull`해야 한다.
 - `GITHUB_TOKEN`으로 push한 커밋은 다른 워크플로를 트리거하지 않는다. 따라서 매일 머지가
   upstream에서 상속받은 CI를 깨우지는 않는다(의도한 이점).
+  PAT로 push하면 다른 워크플로가 트리거될 수 있으므로, 수정 시 필요하면
+  커밋 메시지에 `[skip ci]`를 넣는 것도 고려한다.
 - 로컬 `.venv`에 pytest가 없어 머지 후 정식 테스트를 돌리지 못했다. 검증은 컴파일 +
   프로바이더 등록 스모크 체크 수준이었다.
+- 기본 `GITHUB_TOKEN`은 `.github/workflows/*` 변경을 push하지 못한다.
+  `UPSTREAM_SYNC_TOKEN`(classic PAT: `repo`+`workflow`)이 필요하다.
 
 ## 앞으로의 수동 절차
 
