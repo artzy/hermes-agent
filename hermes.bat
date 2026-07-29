@@ -13,10 +13,18 @@ REM   2) %HERMES_HOME%\workdir          (one-line path file)
 REM   3) %AGENT_ROOT%\hermes.workdir    (local file next to this bat; gitignored)
 REM   4) HERMES_DEFAULT_WORKDIR below
 REM   5) otherwise: caller's current directory
+
 set "HERMES_DEFAULT_WORKDIR=D:\PMT\DEV\HSUniv"
 
 set "AGENT_ROOT=%~dp0"
 if "%AGENT_ROOT:~-1%"=="\" set "AGENT_ROOT=%AGENT_ROOT:~0,-1%"
+
+REM start start_hermes_cursor_proxy.bat in new console
+start cmd /c start_hermes_cursor_proxy.bat
+REM wait for 3 seconds
+timeout /t 3 /nobreak >nul
+
+cd %HERMES_DEFAULT_WORKDIR%
 
 set "HERMES_EXE="
 if exist "%AGENT_ROOT%\.venv\Scripts\hermes.exe" set "HERMES_EXE=%AGENT_ROOT%\.venv\Scripts\hermes.exe"
@@ -24,7 +32,7 @@ if not defined HERMES_EXE if exist "%AGENT_ROOT%\venv\Scripts\hermes.exe" set "H
 if not defined HERMES_EXE goto :err_no_hermes
 
 REM Put venv Scripts first so child tools see the same hermes/python.
-set "PATH=%~dp0.venv\Scripts;%~dp0venv\Scripts;%PATH%"
+set "PATH=%AGENT_ROOT%\.venv\Scripts;%AGENT_ROOT%\venv\Scripts;%PATH%"
 
 REM Default Hermes home on this machine if unset (profiles / config / plugins).
 if not defined HERMES_HOME if defined LOCALAPPDATA (
