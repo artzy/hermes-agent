@@ -1432,3 +1432,69 @@ test('windowsHide defaults to true on Windows, is left alone elsewhere', () => {
 If the logic lives inline in a god-file (`main.ts`, `cli.py`,
 `gateway/run.py`) and extracting it feels disruptive: that's the actual
 signal to do the extraction, not to regex around it.
+
+---
+
+## Cursor Cloud specific instructions
+
+Durable notes for Cloud Agents running in the disposable VM. The startup
+update script already runs `uv sync --extra all --extra dev`, so dependencies
+are present — do NOT re-install them by hand.
+
+### Scope / primary product
+
+The primary product here is the **Python CLI agent** (`hermes`). The JavaScript
+surfaces (`ui-tui/`, `apps/desktop/`, `web/`) are secondary and are NOT set up
+by the startup script. Set them up on demand following the existing "TUI
+Architecture" / desktop sections above (e.g. `cd ui-tui && npm install`).
+
+### Python environment
+
+- The venv is `.venv/` at the repo root (uv-managed). `uv` lives at
+  `~/.local/bin/uv`. Recreate/refresh with `uv sync --extra all --extra dev`
+  (idempotent; prunes to the exact declared set — e.g. `bedrock`/boto3 is not
+  in `[all]` and gets removed, which is expected).
+- Python is 3.12 on the VM (pyproject allows `>=3.11,<3.14`).
+- Run tools through the venv, e.g. `.venv/bin/python hermes ...`,
+  `.venv/bin/ruff check .`.
+
+### Lint / test / run (references, not duplication)
+
+- **Lint:** `.venv/bin/ruff check .` — only rule `PLW1514` is enabled (see
+  `[tool.ruff.lint]` in `pyproject.toml`); "All checks passed" is the healthy
+  result.
+- **Tests:** always `scripts/run_tests.sh <paths>` (see the "Testing" section
+  above — never call `pytest` directly). The full suite is ~17k tests; run
+  targeted paths (e.g. `scripts/run_tests.sh tests/test_hermes_constants.py`).
+- **Run:** `.venv/bin/python hermes --help` / `hermes doctor`. State lives under
+  `~/.hermes` (`config.yaml`, `.env`, `logs/`, sessions); set `HERMES_HOME` to
+  isolate.
+
+### LLM provider caveat (non-obvious — read before trying a live chat)
+
+This fork routes chat through a **Cursor OpenAI-compat sidecar** whose endpoint
+comes from the injected secrets `HERMES_CURSOR_BASE_URL` (a local `127.0.0.1`
+OpenAI-compat port) and `CURSOR_API_KEY`. That sidecar is
+`hermes-cursor-provider` (a *sibling* repo, not in this tree) and
+needs the authenticated Cursor Agent CLI — **neither is available in the cloud
+VM**, so real agent conversations do NOT work out of the box here.
+
+To smoke-test the agent runtime (agent loop + tool dispatch) without the
+sidecar, point Hermes at any local OpenAI-compatible server:
+
+1. Start a local OpenAI-compat server on some `127.0.0.1:<port>`.
+2. Write `~/.hermes/config.yaml` with `model` as a **dict**:
+   ```yaml
+   model:
+     default: <model-id>
+     provider: custom
+     base_url: http://127.0.0.1:<port>/v1
+   ```
+3. `export OPENAI_API_KEY=<any-non-empty>` (the `custom` provider falls back to
+   it), then `hermes -z "..." --yolo --provider custom -m <model-id>`.
+
+Dual config-shape gotcha: `hermes config set model ...` treats `model` as a
+scalar **string**, but the interactive CLI (`load_cli_config`) reads `model` as
+a **dict** with `default`/`provider`/`base_url`. Set the provider/base_url by
+editing `config.yaml` directly — `hermes config set model.base_url ...` will
+not take effect for the CLI run path.
