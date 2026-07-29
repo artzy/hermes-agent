@@ -1,45 +1,56 @@
-# hermes.bat 초기 작업 디렉터리
+# hermes.bat 초기 작업 디렉터리 (멀티폴더)
 
-- **일시**: 2026-07-27
+- **일시**: 2026-07-27 (멀티폴더: 2026-07-29)
 - **대상**: `hermes.bat`
 
 ---
 
 ## 배경
 
-로컬 CLI는 `os.getcwd()`를 작업 폴더로 쓴다 (`terminal.cwd`는 메시징/gateway용).  
-Windows에서 bat/바로가기로 띄우면 호출 cwd가 제각각이라, 런처에서 초기 디렉터리를 고를 수 있게 했다.
+로컬 CLI는 `os.getcwd()`를 주 작업 폴더로 쓴다.  
+여러 폴더에 걸친 작업은 Hermes **Project**(primary + 추가 folders)로 묶는 것이 정석이다.  
+`hermes.bat`는 기동 시 폴더 목록을 읽고 Project를 sync한 뒤 **primary로 cd** 해서 Hermes를 띄운다.
 
-## 우선순위
+## 폴더 목록 우선순위
 
-1. 환경변수 `HERMES_WORKDIR`
-2. `%HERMES_HOME%\workdir` (한 줄 경로 파일)
-3. 리포 루트 `hermes.workdir` (로컬 전용, `.gitignore`에 추가)
-4. 없으면 호출 시점 cwd 유지
+1. 환경변수 `HERMES_WORKDIRS` (`D:\a;D:\b`, 첫 항목 = primary)
+2. `%HERMES_HOME%\workdirs` (한 줄에 한 경로, `#` 주석 가능)
+3. 리포 루트 `hermes.workdirs` (로컬 전용, `.gitignore`)
+4. bat 안 `HERMES_DEFAULT_WORKDIRS`
+5. 단일 폴더 호환: `HERMES_WORKDIR` / `%HERMES_HOME%\workdir` / `hermes.workdir` / `HERMES_DEFAULT_WORKDIR`
+
+없으면 호출 시점 cwd 유지 (Project sync 없음).
+
+## Project sync
+
+- 기본 slug/name: `local-workspace` / `Local Workspace`
+- 없으면 `hermes project create … --use`, 있으면 `add-folder` + `set-primary` + `use`
+- 끄기: `HERMES_SKIP_PROJECT=1`
+- 이름/슬러그: `HERMES_PROJECT_NAME`, `HERMES_PROJECT_SLUG`
+- Cursor proxy 스킵: `HERMES_SKIP_PROXY=1` (리다이렉트/테스트 시 `start` 대기 방지용으로 proxy는 `Start-Process`로 분리)
 
 ## 설정 예
 
 ```powershell
-# A) 환경변수 / 바로가기
-$env:HERMES_WORKDIR = "D:\GitHub\AI\MyProject"
+# A) 환경변수
+$env:HERMES_WORKDIRS = "D:\PMT\DEV\HSUniv;D:\GitHub\AI\hermes-agent"
 D:\GitHub\AI\hermes-agent\hermes.bat
 
-# B) Hermes 홈 (권장 — 프로필과 같이 둠)
-Set-Content "$env:LOCALAPPDATA\hermes\workdir" "D:\GitHub\AI\MyProject"
-
-# C) 체크아웃 옆 로컬 파일
-Set-Content "D:\GitHub\AI\hermes-agent\hermes.workdir" "D:\GitHub\AI\MyProject"
+# B) 체크아웃 옆 로컬 파일 (권장)
+@"
+D:\PMT\DEV\HSUniv
+D:\GitHub\AI\hermes-agent
+"@ | Set-Content -Encoding utf8 "D:\GitHub\AI\hermes-agent\hermes.workdirs"
 ```
 
-기동 시 `[workdir] D:\...` 한 줄이 출력된다.
+기동 시 예:
 
-## 검증
+```text
+[workdir 1] D:\PMT\DEV\HSUniv
+[workdir 2] D:\GitHub\AI\hermes-agent
+[workdir] primary: D:\PMT\DEV\HSUniv  (2 folder(s), source=...)
+[project] sync local-workspace
+[project] active: local-workspace  primary=D:\PMT\DEV\HSUniv
+```
 
-| 케이스 | 결과 |
-|--------|------|
-| `HERMES_WORKDIR` | ✅ `[workdir]` 후 `--version` |
-| `hermes.workdir` | ✅ |
-| `%HERMES_HOME%\workdir` | ✅ |
-| 없는 경로 | ✅ 오류 메시지 후 **exit 1** |
-
-참고: `exit /b`를 `( )` 블록 안에 두면 ERRORLEVEL이 0으로 남는 cmd 함정이 있어, 오류 경로는 `goto` + 라벨로 처리했다.
+CLI는 여전히 primary cwd 기준(`AGENTS.md` 등). 다른 폴더는 절대경로 / `terminal(workdir=…)` 로 접근. Desktop은 Project folders로 세션이 묶인다.

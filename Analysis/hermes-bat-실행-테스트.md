@@ -1,27 +1,33 @@
 # hermes.bat 실행 테스트
 
-- **일시**: 2026-07-27
-- **대상**: `d:\GitHub\AI\hermes-agent\hermes.bat`
-- **실행**: `cmd /c "D:\GitHub\AI\hermes-agent\hermes.bat …"`
-
----
+- **일시**: 2026-07-29 14:39
+- **대상**: `hermes.bat`
+- **머신**: DESKTOP-PGNHAET
 
 ## 결과 요약
 
-| 명령 | exit | 결과 |
-|------|------|------|
-| `--version` | 0 | ✅ Hermes Agent v0.19.0, Python 3.11.9, `.venv` 경로 |
-| `status` | 0 | ✅ 상태 패널 출력 |
-| `model --help` | 0 | ✅ argparse help 정상 |
+| # | 케이스 | exit | 판정 |
+|---|--------|------|------|
+| 1 | default HERMES_DEFAULT_WORKDIRS + --version | 0 | PASS |
+| 2 | HERMES_WORKDIRS sync + --version | 0 | PASS |
+| 3 | HERMES_SKIP_PROJECT=1 | 0 | PASS |
+| 4 | missing folder error | 1 | PASS |
+| 5 | hermes.workdirs file | 0 | PASS |
+| 6 | project show local-workspace | 0 | PASS |
 
-`hermes.exe` 해석: `D:\GitHub\AI\hermes-agent\.venv\Scripts\hermes.exe` (존재함)
+**합계**: 6 / 6 PASS
 
----
+## 상세 로그
 
-## `--version` 출력
+### 1. default HERMES_DEFAULT_WORKDIRS + --version — PASS (exit 0)
 
-```
-Hermes Agent v0.19.0 (2026.7.20) · upstream f2992c1c · local 1da3278d (+1 carried commit)
+```text
+[workdir 1] D:\PMT\DEV\HSUniv
+[workdir 2] D:\GitHub\AI\hermes-agent
+[workdir] primary: D:\PMT\DEV\HSUniv  (2 folder(s), source=HERMES_DEFAULT_WORKDIRS)
+[project] sync local-workspace
+[project] active: local-workspace  primary=D:\PMT\DEV\HSUniv
+Hermes Agent v0.19.0 (2026.7.20) · upstream 226fd31b
 Install directory: D:\GitHub\AI\hermes-agent
 Install method: git
 Python: 3.11.9
@@ -29,36 +35,74 @@ OpenAI SDK: 2.24.0
 Up to date
 ```
 
----
+### 2. HERMES_WORKDIRS sync + --version — PASS (exit 0)
 
-## 주의: HERMES_HOME / .env
-
-이 셸에 `HERMES_HOME=C:\Users\PM\AppData\Local\hermes`가 **이미 설정**되어 있음.
-
-| 경로 | 상태 |
-|------|------|
-| `%HERMES_HOME%\config.yaml` | ✗ 없음 |
-| `%HERMES_HOME%\.env` | ✗ 없음 |
-| `hermes-agent\.env` | ✓ 있음 (`CURSOR_API_KEY` 등) |
-
-`hermes.bat`은 `HERMES_HOME`이 **비어 있을 때만** `%LOCALAPPDATA%\hermes\config.yaml` 존재 여부로 기본값을 넣는다.  
-이미 잘못된/빈 `HERMES_HOME`이 잡혀 있으면 덮어쓰지 않음 → `hermes status`에 `.env file: ✗ not found`, Model `(not set)`로 보임.
-
-### 우회 (테스트 시)
-
-```powershell
-$env:HERMES_HOME = "D:\GitHub\AI\hermes-agent"   # 또는 실제 프로필 홈
-.\hermes.bat status
+```text
+[workdir 1] D:\PMT\DEV\HSUniv
+[workdir 2] D:\GitHub\AI\hermes-agent
+[workdir] primary: D:\PMT\DEV\HSUniv  (2 folder(s), source=env:HERMES_WORKDIRS)
+[project] sync local-workspace
+[project] active: local-workspace  primary=D:\PMT\DEV\HSUniv
+Hermes Agent v0.19.0 (2026.7.20) · upstream 226fd31b
+Install directory: D:\GitHub\AI\hermes-agent
+Install method: git
+Python: 3.11.9
+OpenAI SDK: 2.24.0
+Up to date
 ```
 
-또는 빈 홈을 지운 뒤 bat 기본 로직에 맡기기(해당 경로에 `config.yaml`이 있을 때만 자동 설정됨).
+### 3. HERMES_SKIP_PROJECT=1 — PASS (exit 0)
 
----
-
-## 실행 팁
-
-현재 디렉터리가 `hermes-agent`가 아니면 `hermes.bat`만으로는 PATH에 없음 → 절대경로로 호출:
-
-```bat
-D:\GitHub\AI\hermes-agent\hermes.bat --version
+```text
+[workdir 1] D:\PMT\DEV\HSUniv
+[workdir 2] D:\GitHub\AI\hermes-agent
+[workdir] primary: D:\PMT\DEV\HSUniv  (2 folder(s), source=env:HERMES_WORKDIRS)
+Hermes Agent v0.19.0 (2026.7.20) · upstream 226fd31b
+Install directory: D:\GitHub\AI\hermes-agent
+Install method: git
+Python: 3.11.9
+OpenAI SDK: 2.24.0
+Up to date
 ```
+
+### 4. missing folder error — PASS (exit 1)
+
+```text
+[workdir 1] D:\PMT\DEV\HSUniv
+[error] Work folder not found:
+  D:\this\path\does\not\exist
+Source: env:HERMES_WORKDIRS
+```
+
+### 5. hermes.workdirs file — PASS (exit 0)
+
+```text
+[workdir 1] D:\PMT\DEV\HSUniv
+[workdir 2] D:\GitHub\AI\hermes-agent
+[workdir] primary: D:\PMT\DEV\HSUniv  (2 folder(s), source=d:\GitHub\AI\hermes-agent\hermes.workdirs)
+[project] sync local-workspace
+[project] active: local-workspace  primary=D:\PMT\DEV\HSUniv
+Hermes Agent v0.19.0 (2026.7.20) · upstream 226fd31b
+Install directory: D:\GitHub\AI\hermes-agent
+Install method: git
+Python: 3.11.9
+OpenAI SDK: 2.24.0
+Up to date
+```
+
+### 6. project show local-workspace — PASS (exit 0)
+
+```text
+[workdir 1] D:\PMT\DEV\HSUniv
+[workdir 2] D:\GitHub\AI\hermes-agent
+[workdir] primary: D:\PMT\DEV\HSUniv  (2 folder(s), source=env:HERMES_WORKDIRS)
+[project] sync local-workspace
+[project] active: local-workspace  primary=D:\PMT\DEV\HSUniv
+local-workspace  [p_c0a474f6]
+  name:    Local Workspace
+  primary: D:\PMT\DEV\HSUniv
+  folders:
+    * D:\PMT\DEV\HSUniv
+      D:\GitHub\AI\hermes-agent
+```
+
