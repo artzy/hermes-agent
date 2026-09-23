@@ -20,8 +20,7 @@ REM Override name/slug: HERMES_PROJECT_NAME / HERMES_PROJECT_SLUG
 
 set "HERMES_DEFAULT_WORKDIR=D:\PMT\DEV\HSUniv"
 set "HERMES_DEFAULT_WORKDIRS=D:\PMT\DEV\HSUniv;D:\GitHub\AI\hermes-agent"
-set "HERMES_PROJECT_NAME=Local Workspace"
-set "HERMES_PROJECT_SLUG=local-workspace"
+REM Project name/slug: keep caller overrides (see if-not-defined below).
 
 set "AGENT_ROOT=%~dp0"
 if "%AGENT_ROOT:~-1%"=="\" set "AGENT_ROOT=%AGENT_ROOT:~0,-1%"
