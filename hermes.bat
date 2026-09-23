@@ -97,13 +97,20 @@ for /f "usebackq tokens=* delims=" %%L in ("%WORKDIRS_FILE%") do (
   for /f "tokens=* delims= " %%A in ("!LINE!") do set "LINE=%%A"
   if not "!LINE!"=="" (
     if not exist "!LINE!" (
-      set "BAD_WORKDIR=!LINE!"
-      goto :err_workdir_missing
+      if /i "!WORKDIRS_SRC!"=="HERMES_DEFAULT_WORKDIRS" (
+        echo [warn] skip missing default work folder: !LINE!
+      ) else if /i "!WORKDIRS_SRC!"=="HERMES_DEFAULT_WORKDIR" (
+        echo [warn] skip missing default work folder: !LINE!
+      ) else (
+        set "BAD_WORKDIR=!LINE!"
+        goto :err_workdir_missing
+      )
+    ) else (
+      set /a FOLDER_COUNT+=1
+      if not defined HERMES_PRIMARY set "HERMES_PRIMARY=!LINE!"
+      set "CREATE_ARGS=!CREATE_ARGS! "!LINE!""
+      echo [workdir !FOLDER_COUNT!] !LINE!
     )
-    set /a FOLDER_COUNT+=1
-    if not defined HERMES_PRIMARY set "HERMES_PRIMARY=!LINE!"
-    set "CREATE_ARGS=!CREATE_ARGS! "!LINE!""
-    echo [workdir !FOLDER_COUNT!] !LINE!
   )
 )
 
